@@ -7,7 +7,7 @@
 [![Platform Support](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#setup)
 
 <p align="center">
-  <img src="assets/mcp_power_banner.png" alt="Pg-Mnemosyne MCP Power Banner" width="100%">
+  <img src="https://raw.githubusercontent.com/Janadasroor/pg-mnemosyne-mcp/main/assets/mcp_power_banner.png" alt="Pg-Mnemosyne MCP Power Banner" width="100%">
 </p>
 
 A Model Context Protocol (MCP) server that provides AI assistants with a robust "super memory", task tracker, and dynamic PostgreSQL database management capabilities.
