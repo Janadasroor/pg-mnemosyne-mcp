@@ -1,22 +1,24 @@
-import os
+import argparse
+import asyncio
 import json
 import logging
-import asyncio
-import argparse
-import sys
-import asyncpg
+import os
 import re
+import sys
 from typing import List, Optional
+
+import asyncpg
 from mcp.server.fastmcp import FastMCP
 
 # Setup basic logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("pg-mnemosyne")
 
 # Create the MCP server instance
 mcp = FastMCP("Pg-Mnemosyne")
 
 # --- Configuration Management ---
+
 
 def get_config_dir() -> str:
     """Returns the cross-platform directory for storing app configuration."""
@@ -28,27 +30,31 @@ def get_config_dir() -> str:
     else:
         return os.path.join(home, ".config", "pg-mnemosyne")
 
+
 def get_config_path() -> str:
     return os.path.join(get_config_dir(), "config.json")
+
 
 def save_local_config(dsn: str):
     """Saves the DSN to a local config file for CLI use."""
     config_dir = get_config_dir()
     os.makedirs(config_dir, exist_ok=True)
-    with open(get_config_path(), 'w') as f:
+    with open(get_config_path(), "w") as f:
         json.dump({"PG_BASE_DSN": dsn}, f, indent=2)
     print(f"💾 Saved local CLI configuration to {get_config_path()}")
+
 
 def load_local_config() -> dict:
     """Loads the local config file."""
     path = get_config_path()
     if os.path.exists(path):
         try:
-            with open(path, 'r') as f:
+            with open(path, "r") as f:
                 return json.load(f)
         except:
             pass
     return {}
+
 
 def get_base_dsn() -> str:
     """Returns the base PostgreSQL connection string (Env > Local Config > Default)."""
@@ -56,14 +62,15 @@ def get_base_dsn() -> str:
     env_dsn = os.environ.get("PG_BASE_DSN")
     if env_dsn:
         return env_dsn
-    
+
     # 2. Check local config file
     config = load_local_config()
     if "PG_BASE_DSN" in config:
         return config["PG_BASE_DSN"]
-    
+
     # 3. Default fallback
     return "postgresql://postgres:postgres@localhost:5432/postgres"
+
 
 def get_db_dsn(db_name: str) -> str:
     """Returns the connection string for a specific database."""
@@ -73,9 +80,11 @@ def get_db_dsn(db_name: str) -> str:
         return f"{parts[0]}/{db_name}"
     return base
 
+
 # --- Connection Pooling Cache ---
 _pools = {}
 _pools_lock = asyncio.Lock()
+
 
 async def get_db_pool(dsn: str) -> asyncpg.Pool:
     """Returns a cached connection pool for the given DSN or creates a new one."""
@@ -83,6 +92,7 @@ async def get_db_pool(dsn: str) -> asyncpg.Pool:
         if dsn not in _pools:
             _pools[dsn] = await asyncpg.create_pool(dsn, min_size=1, max_size=10)
         return _pools[dsn]
+
 
 async def close_all_pools():
     """Closes all cached connection pools."""
@@ -94,6 +104,7 @@ async def close_all_pools():
                 pass
         _pools.clear()
 
+
 async def run_and_cleanup(coro):
     """Runs a coroutine and guarantees closing all connection pools afterwards."""
     try:
@@ -101,7 +112,9 @@ async def run_and_cleanup(coro):
     finally:
         await close_all_pools()
 
+
 # --- Helper Functions ---
+
 
 async def fetch_json(dsn: str, query: str, *args):
     """Executes a query and returns results as a formatted JSON string."""
@@ -113,13 +126,16 @@ async def fetch_json(dsn: str, query: str, *args):
             for r in records:
                 d = dict(r)
                 for k, v in d.items():
-                    if hasattr(v, 'isoformat'): d[k] = v.isoformat()
+                    if hasattr(v, "isoformat"):
+                        d[k] = v.isoformat()
                 result_list.append(d)
             return json.dumps(result_list, indent=2)
     except Exception as e:
         return f"Error: {e}"
 
+
 # --- MCP Tool Definitions ---
+
 
 @mcp.tool()
 async def create_project_db(db_name: str) -> str:
@@ -134,13 +150,14 @@ async def create_project_db(db_name: str) -> str:
     except Exception as e:
         return f"Error creating database: {e}"
 
+
 @mcp.tool()
 async def init_schema(db_name: str) -> str:
     """Initializes the base 'records' table in the specified database."""
     try:
         pool = await get_db_pool(get_db_dsn(db_name))
         async with pool.acquire() as conn:
-            await conn.execute('''
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS records (
                     id SERIAL PRIMARY KEY,
                     type VARCHAR(50) NOT NULL,
@@ -150,10 +167,11 @@ async def init_schema(db_name: str) -> str:
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
             return f"Base schema initialized in database '{db_name}'."
     except Exception as e:
         return f"Error initializing schema: {e}"
+
 
 @mcp.tool()
 async def init_todo_schema(db_name: str) -> str:
@@ -161,7 +179,7 @@ async def init_todo_schema(db_name: str) -> str:
     try:
         pool = await get_db_pool(get_db_dsn(db_name))
         async with pool.acquire() as conn:
-            await conn.execute('''
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
                     id SERIAL PRIMARY KEY,
                     title VARCHAR(255) NOT NULL,
@@ -173,10 +191,11 @@ async def init_todo_schema(db_name: str) -> str:
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
             return f"Professional tasks schema initialized in database '{db_name}'."
     except Exception as e:
         return f"Error initializing tasks schema: {e}"
+
 
 @mcp.tool()
 async def init_coordination_schema(db_name: str) -> str:
@@ -184,7 +203,7 @@ async def init_coordination_schema(db_name: str) -> str:
     try:
         pool = await get_db_pool(get_db_dsn(db_name))
         async with pool.acquire() as conn:
-            await conn.execute('''
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS agent_sessions (
                     id SERIAL PRIMARY KEY,
                     agent_name VARCHAR(100) UNIQUE NOT NULL,
@@ -193,21 +212,18 @@ async def init_coordination_schema(db_name: str) -> str:
                     status VARCHAR(50) DEFAULT 'active',
                     last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
             return f"Agent coordination schema initialized in database '{db_name}'."
     except Exception as e:
         return f"Error initializing agent coordination schema: {e}"
 
+
 @mcp.tool()
 async def update_agent_session(
-    db_name: str,
-    agent_name: str,
-    active_task: str,
-    active_file: Optional[str] = None,
-    status: str = "active"
+    db_name: str, agent_name: str, active_task: str, active_file: Optional[str] = None, status: str = "active"
 ) -> str:
     """Updates or registers the active task and state of an agent in the database (thread-safe upsert)."""
-    query = '''
+    query = """
         INSERT INTO agent_sessions (agent_name, active_task, active_file, status)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (agent_name)
@@ -217,7 +233,7 @@ async def update_agent_session(
             status = EXCLUDED.status,
             last_active_at = CURRENT_TIMESTAMP
         RETURNING id
-    '''
+    """
     try:
         pool = await get_db_pool(get_db_dsn(db_name))
         async with pool.acquire() as conn:
@@ -226,11 +242,13 @@ async def update_agent_session(
     except Exception as e:
         return f"Error updating agent session: {e}"
 
+
 @mcp.tool()
 async def get_active_sessions(db_name: str) -> str:
     """Retrieves all registered agent coordination sessions ordered by last active time."""
-    query = 'SELECT * FROM agent_sessions ORDER BY last_active_at DESC'
+    query = "SELECT * FROM agent_sessions ORDER BY last_active_at DESC"
     return await fetch_json(get_db_dsn(db_name), query)
+
 
 @mcp.tool()
 async def add_column(db_name: str, table: str, column_name: str, data_type: str) -> str:
@@ -242,6 +260,7 @@ async def add_column(db_name: str, table: str, column_name: str, data_type: str)
             return f"Column '{column_name}' added to table '{table}'."
     except Exception as e:
         return f"Error adding column: {e}"
+
 
 @mcp.tool()
 async def run_sql(db_name: str, query: str) -> str:
@@ -256,7 +275,8 @@ async def run_sql(db_name: str, query: str) -> str:
                 for r in records:
                     d = dict(r)
                     for k, v in d.items():
-                        if hasattr(v, 'isoformat'): d[k] = v.isoformat()
+                        if hasattr(v, "isoformat"):
+                            d[k] = v.isoformat()
                     result_list.append(d)
                 return json.dumps(result_list, indent=2)
             else:
@@ -265,30 +285,38 @@ async def run_sql(db_name: str, query: str) -> str:
     except Exception as e:
         return f"Error executing SQL: {e}"
 
+
 @mcp.tool()
 async def add_record(db_name: str, type: str, content: str, tags: List[str] = []) -> str:
     """Adds a new memory/task record."""
     try:
         pool = await get_db_pool(get_db_dsn(db_name))
         async with pool.acquire() as conn:
-            row_id = await conn.fetchval('''
+            row_id = await conn.fetchval(
+                """
                 INSERT INTO records (type, content, tags)
                 VALUES ($1, $2, $3)
                 RETURNING id
-            ''', type, content, tags)
+            """,
+                type,
+                content,
+                tags,
+            )
             return f"Record added with ID: {row_id}"
     except Exception as e:
         return f"Error adding record: {e}"
 
+
 @mcp.tool()
 async def get_records(db_name: str, type: Optional[str] = None, limit: int = 50) -> str:
     """Retrieves recent records from the database."""
-    query = 'SELECT * FROM records ORDER BY created_at DESC LIMIT $1'
+    query = "SELECT * FROM records ORDER BY created_at DESC LIMIT $1"
     args = [limit]
     if type:
-        query = 'SELECT * FROM records WHERE type = $1 ORDER BY created_at DESC LIMIT $2'
+        query = "SELECT * FROM records WHERE type = $1 ORDER BY created_at DESC LIMIT $2"
         args = [type, limit]
     return await fetch_json(get_db_dsn(db_name), query, *args)
+
 
 @mcp.tool()
 async def delete_record(db_name: str, record_id: int) -> str:
@@ -303,13 +331,14 @@ async def delete_record(db_name: str, record_id: int) -> str:
     except Exception as e:
         return f"Error deleting record: {e}"
 
+
 @mcp.tool()
 async def update_record(
     db_name: str,
     record_id: int,
     content: Optional[str] = None,
     tags: Optional[List[str]] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
 ) -> str:
     """Updates a record in the database by its ID. Only non-None fields will be updated."""
     updates = []
@@ -351,40 +380,71 @@ async def update_record(
     except Exception as e:
         return f"Error updating record: {e}"
 
+
 # --- CLI Command Implementations ---
+
 
 def cmd_run():
     """Starts the MCP server."""
-    mcp.run(transport='stdio')
+    mcp.run(transport="stdio")
+
 
 async def cmd_init(dsn: str):
     """Automatically configures all supported AI agents and saves local CLI config."""
     import shutil
-    
+
     home = os.path.expanduser("~")
     executable = shutil.which("pg-mnemosyne") or sys.executable + " -m pg_mnemosyne.server"
-    
+
     # 1. Save local config for CLI use
     save_local_config(dsn)
-    
+
     # 2. Config definitions for agents
+    roocode_path = (
+        os.path.expandvars(
+            os.path.join(
+                home,
+                "Library",
+                "Application Support",
+                "Code",
+                "User",
+                "globalStorage",
+                "saoudrizwan.claude-dev",
+                "settings",
+                "cline_mcp_settings.json",
+            )
+        )
+        if sys.platform == "darwin"
+        else os.path.expandvars(
+            os.path.join(
+                os.environ.get("APPDATA", home),
+                "Code",
+                "User",
+                "globalStorage",
+                "saoudrizwan.claude-dev",
+                "settings",
+                "cline_mcp_settings.json",
+            )
+        )
+    )
+    cline_cli_path = os.path.join(home, ".cline", "data", "settings", "cline_mcp_settings.json")
+    claude_desktop_path = (
+        os.path.expandvars(os.path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"))
+        if sys.platform == "darwin"
+        else os.path.expandvars(os.path.join(os.environ.get("APPDATA", home), "Claude", "claude_desktop_config.json"))
+    )
+
     configs = {
-        "Gemini CLI": { "path": os.path.join(home, ".gemini", "settings.json"), "key": "mcpServers" },
-        "Qwen CLI": { "path": os.path.join(home, ".qwen", "settings.json"), "key": "mcpServers" },
-        "Claude Code": { "path": os.path.join(home, ".claude.json"), "key": "mcpServers" },
-        "Windsurf": { "path": os.path.join(home, ".codeium", "windsurf", "mcp_config.json"), "key": "mcpServers" },
-        "Roo Code / Cline": {
-            "path": os.path.expandvars(os.path.join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")) if sys.platform == "darwin" else os.path.expandvars(os.path.join(os.environ.get("APPDATA", home), "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")),
-            "key": "mcpServers"
-        },
-        "Cline CLI": { "path": os.path.join(home, ".cline", "data", "settings", "cline_mcp_settings.json"), "key": "mcpServers" },
-        "Claude Desktop": {
-            "path": os.path.expandvars(os.path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")) if sys.platform == "darwin" else os.path.expandvars(os.path.join(os.environ.get("APPDATA", home), "Claude", "claude_desktop_config.json")),
-            "key": "mcpServers"
-        }
+        "Gemini CLI": {"path": os.path.join(home, ".gemini", "settings.json"), "key": "mcpServers"},
+        "Qwen CLI": {"path": os.path.join(home, ".qwen", "settings.json"), "key": "mcpServers"},
+        "Claude Code": {"path": os.path.join(home, ".claude.json"), "key": "mcpServers"},
+        "Windsurf": {"path": os.path.join(home, ".codeium", "windsurf", "mcp_config.json"), "key": "mcpServers"},
+        "Roo Code / Cline": {"path": roocode_path, "key": "mcpServers"},
+        "Cline CLI": {"path": cline_cli_path, "key": "mcpServers"},
+        "Claude Desktop": {"path": claude_desktop_path, "key": "mcpServers"},
     }
 
-    print(f"🚀 Initializing pg-mnemosyne for supported agents...")
+    print("🚀 Initializing pg-mnemosyne for supported agents...")
 
     for name, info in configs.items():
         path = info["path"]
@@ -392,23 +452,25 @@ async def cmd_init(dsn: str):
             try:
                 data = {}
                 if os.path.exists(path):
-                    with open(path, 'r') as f:
+                    with open(path, "r") as f:
                         content = f.read()
                         if content.strip():
                             try:
                                 data = json.loads(content)
                             except json.JSONDecodeError:
-                                clean_content = re.sub(r'//.*', '', content)
+                                clean_content = re.sub(r"//.*", "", content)
                                 data = json.loads(clean_content)
-                
+
                 mcp_key = info["key"]
-                if mcp_key not in data: data[mcp_key] = {}
-                
-                new_entry = { "command": executable, "args": [], "env": {"PG_BASE_DSN": dsn} }
-                
+                if mcp_key not in data:
+                    data[mcp_key] = {}
+
+                new_entry = {"command": executable, "args": [], "env": {"PG_BASE_DSN": dsn}}
+
                 if data[mcp_key].get("pg-mnemosyne") != new_entry:
                     data[mcp_key]["pg-mnemosyne"] = new_entry
-                    with open(path, 'w') as f: json.dump(data, f, indent=2)
+                    with open(path, "w") as f:
+                        json.dump(data, f, indent=2)
                     print(f"✅ Configured {name} at {path}")
                 else:
                     print(f"ℹ️  {name} already configured, skipping.")
@@ -421,26 +483,31 @@ async def cmd_init(dsn: str):
         try:
             data = {"$schema": "https://opencode.ai/config.json"}
             if os.path.exists(opencode_path):
-                with open(opencode_path, 'r') as f:
+                with open(opencode_path, "r") as f:
                     content = f.read()
-                    if content.strip(): 
-                        clean_content = re.sub(r'//.*', '', content)
-                        try: data = json.loads(clean_content)
-                        except: pass
-            if "mcp" not in data: data["mcp"] = {}
+                    if content.strip():
+                        clean_content = re.sub(r"//.*", "", content)
+                        try:
+                            data = json.loads(clean_content)
+                        except Exception:
+                            pass
+            if "mcp" not in data:
+                data["mcp"] = {}
             new_entry = {
                 "type": "local",
                 "command": [executable],
                 "env": {"PG_BASE_DSN": dsn},
-                "environment": {"PG_BASE_DSN": dsn}
+                "environment": {"PG_BASE_DSN": dsn},
             }
             if data["mcp"].get("pg-mnemosyne") != new_entry:
                 data["mcp"]["pg-mnemosyne"] = new_entry
-                with open(opencode_path, 'w') as f: json.dump(data, f, indent=2)
+                with open(opencode_path, "w") as f:
+                    json.dump(data, f, indent=2)
                 print(f"✅ Configured OpenCode at {opencode_path}")
             else:
-                print(f"ℹ️  OpenCode already configured, skipping.")
-        except Exception as e: print(f"⚠️  Skipped OpenCode: {e}")
+                print("ℹ️  OpenCode already configured, skipping.")
+        except Exception as e:
+            print(f"⚠️  Skipped OpenCode: {e}")
 
     # Codex (TOML)
     codex_path = os.path.join(home, ".codex", "config.toml")
@@ -448,13 +515,22 @@ async def cmd_init(dsn: str):
         try:
             content = ""
             if os.path.exists(codex_path):
-                with open(codex_path, 'r') as f: content = f.read()
+                with open(codex_path, "r") as f:
+                    content = f.read()
             if "[mcp_servers.pg-mnemosyne]" not in content:
-                entry = f'\n[mcp_servers.pg-mnemosyne]\ncommand = "{executable}"\n\n[mcp_servers.pg-mnemosyne.env]\nPG_BASE_DSN = "{dsn}"\n'
-                with open(codex_path, 'a') as f: f.write(entry)
+                entry = (
+                    f"\n[mcp_servers.pg-mnemosyne]\n"
+                    f'command = "{executable}"\n\n'
+                    f"[mcp_servers.pg-mnemosyne.env]\n"
+                    f'PG_BASE_DSN = "{dsn}"\n'
+                )
+                with open(codex_path, "a") as f:
+                    f.write(entry)
                 print(f"✅ Configured Codex at {codex_path}")
-            else: print(f"ℹ️  Codex already configured, skipping.")
-        except Exception as e: print(f"⚠️  Skipped Codex: {e}")
+            else:
+                print("ℹ️  Codex already configured, skipping.")
+        except Exception as e:
+            print(f"⚠️  Skipped Codex: {e}")
 
     # Antigravity (Plugin)
     agy_dir = os.path.join(home, ".gemini", "config", "plugins", "pg-mnemosyne")
@@ -462,35 +538,50 @@ async def cmd_init(dsn: str):
     if os.path.exists(os.path.dirname(manifest_path)):
         try:
             os.makedirs(agy_dir, exist_ok=True)
-            with open(os.path.join(agy_dir, "plugin.json"), 'w') as f: json.dump({"name": "pg-mnemosyne"}, f)
-            with open(os.path.join(agy_dir, "mcp_config.json"), 'w') as f: json.dump({"mcpServers": {"pg-mnemosyne": {"command": executable, "args": [], "env": {"PG_BASE_DSN": dsn}}}}, f, indent=2)
+            with open(os.path.join(agy_dir, "plugin.json"), "w") as f:
+                json.dump({"name": "pg-mnemosyne"}, f)
+            with open(os.path.join(agy_dir, "mcp_config.json"), "w") as f:
+                json.dump(
+                    {"mcpServers": {"pg-mnemosyne": {"command": executable, "args": [], "env": {"PG_BASE_DSN": dsn}}}},
+                    f,
+                    indent=2,
+                )
             manifest = {"imports": []}
             if os.path.exists(manifest_path):
-                with open(manifest_path, 'r') as f: manifest = json.load(f)
+                with open(manifest_path, "r") as f:
+                    manifest = json.load(f)
             if not any(i.get("name") == "pg-mnemosyne" for i in manifest["imports"]):
                 manifest["imports"].append({"name": "pg-mnemosyne", "source": "manual", "components": ["mcpServers"]})
-                with open(manifest_path, 'w') as f: json.dump(manifest, f, indent=2)
-            print(f"✅ Configured Antigravity (agy) plugin")
-        except Exception as e: print(f"❌ Failed to configure Antigravity: {e}")
+                with open(manifest_path, "w") as f:
+                    json.dump(manifest, f, indent=2)
+            print("✅ Configured Antigravity (agy) plugin")
+        except Exception as e:
+            print(f"❌ Failed to configure Antigravity: {e}")
 
-    print(f"\n✨ Initialization complete! Restart your AI agents to see the new tools.")
+    print("\n✨ Initialization complete! Restart your AI agents to see the new tools.")
+
 
 async def cmd_list_dbs():
     """Lists all databases in the PostgreSQL instance."""
     print(await fetch_json(get_base_dsn(), "SELECT datname FROM pg_database WHERE datistemplate = false;"))
 
+
 async def cmd_list_tables(db: str):
     """Lists all tables in the specified database."""
-    print(await fetch_json(get_db_dsn(db), "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"))
+    sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
+    print(await fetch_json(get_db_dsn(db), sql))
+
 
 async def cmd_search(db: str, query: str):
     """Searches for records containing the query string."""
     sql = "SELECT * FROM records WHERE content ILIKE $1 OR type ILIKE $1 ORDER BY created_at DESC"
     print(await fetch_json(get_db_dsn(db), sql, f"%{query}%"))
 
+
 async def cmd_delete(db: str, record_id: int):
     """Deletes a record by its ID."""
     print(await delete_record(db, record_id))
+
 
 def main():
     parser = argparse.ArgumentParser(description="Pg-Mnemosyne CLI & MCP Server")
@@ -580,7 +671,8 @@ def main():
     elif args.command == "init-coordination":
         print(asyncio.run(run_and_cleanup(init_coordination_schema(args.db))))
     elif args.command == "update-session":
-        print(asyncio.run(run_and_cleanup(update_agent_session(args.db, args.agent, args.task, args.file, args.status))))
+        coro = update_agent_session(args.db, args.agent, args.task, args.file, args.status)
+        print(asyncio.run(run_and_cleanup(coro)))
     elif args.command == "sessions":
         print(asyncio.run(run_and_cleanup(get_active_sessions(args.db))))
     elif args.command == "sql":
@@ -606,9 +698,11 @@ def main():
         # If no command, default to running the server
         cmd_run()
 
+
 async def cmd_list(db: str, type: str = None):
     """CLI shortcut to list records."""
     print(await get_records(db, type))
+
 
 if __name__ == "__main__":
     main()
