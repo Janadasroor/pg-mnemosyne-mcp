@@ -4,10 +4,11 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
 
 ## ⚡ Quick Start
 
-1. **Install the package:**
+1. **Install the package globally (recommended):**
    ```bash
-   pip install pg-mnemosyne-mcp
+   pipx install pg-mnemosyne-mcp
    ```
+   *If you don't have `pipx`, you can use `pip install pg-mnemosyne-mcp`.*
 
 2. **Auto-configure all your AI agents (Claude, Gemini, Qwen, Cursor, etc.) at once:**
    ```bash
@@ -15,6 +16,7 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
    ```
 
 3. **Restart your AI agents.** You're done!
+
 
 ---
 
@@ -145,6 +147,8 @@ pg-mnemosyne add my_project_db todo "Finish the documentation"
 # List records
 pg-mnemosyne list my_project_db --type todo
 ```
+
+> **Note**: For more advanced commands (search, delete, list-dbs, sql, etc.), run `pg-mnemosyne --help`.
 
 ## Available MCP Tools
 

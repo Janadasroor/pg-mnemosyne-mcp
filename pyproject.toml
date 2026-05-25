@@ -20,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 pg-mnemosyne = "pg_mnemosyne.server:main"
+pg_mnemosyne = "pg_mnemosyne.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pg_mnemosyne"]
