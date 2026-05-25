@@ -16,9 +16,54 @@ logger = logging.getLogger("pg-mnemosyne")
 # Create the MCP server instance
 mcp = FastMCP("Pg-Mnemosyne")
 
+# --- Configuration Management ---
+
+def get_config_dir() -> str:
+    """Returns the cross-platform directory for storing app configuration."""
+    home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        return os.path.join(os.environ.get("APPDATA", home), "pg-mnemosyne")
+    elif sys.platform == "darwin":
+        return os.path.join(home, "Library", "Application Support", "pg-mnemosyne")
+    else:
+        return os.path.join(home, ".config", "pg-mnemosyne")
+
+def get_config_path() -> str:
+    return os.path.join(get_config_dir(), "config.json")
+
+def save_local_config(dsn: str):
+    """Saves the DSN to a local config file for CLI use."""
+    config_dir = get_config_dir()
+    os.makedirs(config_dir, exist_ok=True)
+    with open(get_config_path(), 'w') as f:
+        json.dump({"PG_BASE_DSN": dsn}, f, indent=2)
+    print(f"💾 Saved local CLI configuration to {get_config_path()}")
+
+def load_local_config() -> dict:
+    """Loads the local config file."""
+    path = get_config_path()
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
 def get_base_dsn() -> str:
-    """Returns the base PostgreSQL connection string from environment."""
-    return os.environ.get("PG_BASE_DSN", "postgresql://postgres:postgres@localhost:5432/postgres")
+    """Returns the base PostgreSQL connection string (Env > Local Config > Default)."""
+    # 1. Check environment variable
+    env_dsn = os.environ.get("PG_BASE_DSN")
+    if env_dsn:
+        return env_dsn
+    
+    # 2. Check local config file
+    config = load_local_config()
+    if "PG_BASE_DSN" in config:
+        return config["PG_BASE_DSN"]
+    
+    # 3. Default fallback
+    return "postgresql://postgres:postgres@localhost:5432/postgres"
 
 def get_db_dsn(db_name: str) -> str:
     """Returns the connection string for a specific database."""
@@ -28,13 +73,41 @@ def get_db_dsn(db_name: str) -> str:
         return f"{parts[0]}/{db_name}"
     return base
 
+# --- Connection Pooling Cache ---
+_pools = {}
+_pools_lock = asyncio.Lock()
+
+async def get_db_pool(dsn: str) -> asyncpg.Pool:
+    """Returns a cached connection pool for the given DSN or creates a new one."""
+    async with _pools_lock:
+        if dsn not in _pools:
+            _pools[dsn] = await asyncpg.create_pool(dsn, min_size=1, max_size=10)
+        return _pools[dsn]
+
+async def close_all_pools():
+    """Closes all cached connection pools."""
+    async with _pools_lock:
+        for dsn, pool in list(_pools.items()):
+            try:
+                await pool.close()
+            except:
+                pass
+        _pools.clear()
+
+async def run_and_cleanup(coro):
+    """Runs a coroutine and guarantees closing all connection pools afterwards."""
+    try:
+        return await coro
+    finally:
+        await close_all_pools()
+
 # --- Helper Functions ---
 
 async def fetch_json(dsn: str, query: str, *args):
     """Executes a query and returns results as a formatted JSON string."""
     try:
-        conn = await asyncpg.connect(dsn)
-        try:
+        pool = await get_db_pool(dsn)
+        async with pool.acquire() as conn:
             records = await conn.fetch(query, *args)
             result_list = []
             for r in records:
@@ -43,8 +116,6 @@ async def fetch_json(dsn: str, query: str, *args):
                     if hasattr(v, 'isoformat'): d[k] = v.isoformat()
                 result_list.append(d)
             return json.dumps(result_list, indent=2)
-        finally:
-            await conn.close()
     except Exception as e:
         return f"Error: {e}"
 
@@ -54,14 +125,12 @@ async def fetch_json(dsn: str, query: str, *args):
 async def create_project_db(db_name: str) -> str:
     """Creates a new PostgreSQL database for a project."""
     try:
-        conn = await asyncpg.connect(get_base_dsn())
-        try:
+        pool = await get_db_pool(get_base_dsn())
+        async with pool.acquire() as conn:
             await conn.execute(f'CREATE DATABASE "{db_name}"')
             return f"Database '{db_name}' created successfully."
-        except asyncpg.exceptions.DuplicateDatabaseError:
-            return f"Database '{db_name}' already exists."
-        finally:
-            await conn.close()
+    except asyncpg.exceptions.DuplicateDatabaseError:
+        return f"Database '{db_name}' already exists."
     except Exception as e:
         return f"Error creating database: {e}"
 
@@ -69,8 +138,8 @@ async def create_project_db(db_name: str) -> str:
 async def init_schema(db_name: str) -> str:
     """Initializes the base 'records' table in the specified database."""
     try:
-        conn = await asyncpg.connect(get_db_dsn(db_name))
-        try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS records (
                     id SERIAL PRIMARY KEY,
@@ -83,21 +152,94 @@ async def init_schema(db_name: str) -> str:
                 )
             ''')
             return f"Base schema initialized in database '{db_name}'."
-        finally:
-            await conn.close()
     except Exception as e:
         return f"Error initializing schema: {e}"
+
+@mcp.tool()
+async def init_todo_schema(db_name: str) -> str:
+    """Initializes a professional 'tasks' table in the specified database."""
+    try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    priority VARCHAR(50) DEFAULT 'medium',
+                    status VARCHAR(50) DEFAULT 'todo',
+                    due_date TIMESTAMP WITH TIME ZONE,
+                    tags TEXT[] DEFAULT '{}',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            return f"Professional tasks schema initialized in database '{db_name}'."
+    except Exception as e:
+        return f"Error initializing tasks schema: {e}"
+
+@mcp.tool()
+async def init_coordination_schema(db_name: str) -> str:
+    """Initializes the 'agent_sessions' table for multi-agent coordination."""
+    try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS agent_sessions (
+                    id SERIAL PRIMARY KEY,
+                    agent_name VARCHAR(100) UNIQUE NOT NULL,
+                    active_task TEXT NOT NULL,
+                    active_file VARCHAR(512),
+                    status VARCHAR(50) DEFAULT 'active',
+                    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            return f"Agent coordination schema initialized in database '{db_name}'."
+    except Exception as e:
+        return f"Error initializing agent coordination schema: {e}"
+
+@mcp.tool()
+async def update_agent_session(
+    db_name: str,
+    agent_name: str,
+    active_task: str,
+    active_file: Optional[str] = None,
+    status: str = "active"
+) -> str:
+    """Updates or registers the active task and state of an agent in the database (thread-safe upsert)."""
+    query = '''
+        INSERT INTO agent_sessions (agent_name, active_task, active_file, status)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (agent_name)
+        DO UPDATE SET
+            active_task = EXCLUDED.active_task,
+            active_file = EXCLUDED.active_file,
+            status = EXCLUDED.status,
+            last_active_at = CURRENT_TIMESTAMP
+        RETURNING id
+    '''
+    try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
+            row_id = await conn.fetchval(query, agent_name, active_task, active_file, status)
+            return f"Session for agent '{agent_name}' updated in database '{db_name}' (ID: {row_id})."
+    except Exception as e:
+        return f"Error updating agent session: {e}"
+
+@mcp.tool()
+async def get_active_sessions(db_name: str) -> str:
+    """Retrieves all registered agent coordination sessions ordered by last active time."""
+    query = 'SELECT * FROM agent_sessions ORDER BY last_active_at DESC'
+    return await fetch_json(get_db_dsn(db_name), query)
 
 @mcp.tool()
 async def add_column(db_name: str, table: str, column_name: str, data_type: str) -> str:
     """Adds a new column to a table dynamically."""
     try:
-        conn = await asyncpg.connect(get_db_dsn(db_name))
-        try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
             await conn.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column_name}" {data_type}')
             return f"Column '{column_name}' added to table '{table}'."
-        finally:
-            await conn.close()
     except Exception as e:
         return f"Error adding column: {e}"
 
@@ -105,8 +247,8 @@ async def add_column(db_name: str, table: str, column_name: str, data_type: str)
 async def run_sql(db_name: str, query: str) -> str:
     """Executes arbitrary SQL queries and returns results as JSON."""
     try:
-        conn = await asyncpg.connect(get_db_dsn(db_name))
-        try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
             q_upper = query.strip().upper()
             if q_upper.startswith("SELECT") or "RETURNING" in q_upper:
                 records = await conn.fetch(query)
@@ -120,8 +262,6 @@ async def run_sql(db_name: str, query: str) -> str:
             else:
                 status = await conn.execute(query)
                 return f"Query executed. Status: {status}"
-        finally:
-            await conn.close()
     except Exception as e:
         return f"Error executing SQL: {e}"
 
@@ -129,16 +269,14 @@ async def run_sql(db_name: str, query: str) -> str:
 async def add_record(db_name: str, type: str, content: str, tags: List[str] = []) -> str:
     """Adds a new memory/task record."""
     try:
-        conn = await asyncpg.connect(get_db_dsn(db_name))
-        try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
             row_id = await conn.fetchval('''
                 INSERT INTO records (type, content, tags)
                 VALUES ($1, $2, $3)
                 RETURNING id
             ''', type, content, tags)
             return f"Record added with ID: {row_id}"
-        finally:
-            await conn.close()
     except Exception as e:
         return f"Error adding record: {e}"
 
@@ -152,6 +290,67 @@ async def get_records(db_name: str, type: Optional[str] = None, limit: int = 50)
         args = [type, limit]
     return await fetch_json(get_db_dsn(db_name), query, *args)
 
+@mcp.tool()
+async def delete_record(db_name: str, record_id: int) -> str:
+    """Deletes a record from the database by its ID."""
+    try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
+            status = await conn.execute("DELETE FROM records WHERE id = $1", record_id)
+            if status == "DELETE 0":
+                return f"No record found with ID: {record_id} in database '{db_name}'."
+            return f"Record {record_id} successfully deleted from database '{db_name}'."
+    except Exception as e:
+        return f"Error deleting record: {e}"
+
+@mcp.tool()
+async def update_record(
+    db_name: str,
+    record_id: int,
+    content: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    status: Optional[str] = None
+) -> str:
+    """Updates a record in the database by its ID. Only non-None fields will be updated."""
+    updates = []
+    args = []
+    arg_idx = 1
+
+    if content is not None:
+        updates.append(f"content = ${arg_idx}")
+        args.append(content)
+        arg_idx += 1
+
+    if tags is not None:
+        updates.append(f"tags = ${arg_idx}")
+        args.append(tags)
+        arg_idx += 1
+
+    if status is not None:
+        updates.append(f"status = ${arg_idx}")
+        args.append(status)
+        arg_idx += 1
+
+    if not updates:
+        return "No fields provided to update."
+
+    # Always update updated_at timestamp
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+
+    # Add record_id to the query arguments
+    args.append(record_id)
+    query = f"UPDATE records SET {', '.join(updates)} WHERE id = ${arg_idx} RETURNING id"
+
+    try:
+        pool = await get_db_pool(get_db_dsn(db_name))
+        async with pool.acquire() as conn:
+            val = await conn.fetchval(query, *args)
+            if val is None:
+                return f"No record found with ID: {record_id} in database '{db_name}'."
+            return f"Record {record_id} successfully updated in database '{db_name}'."
+    except Exception as e:
+        return f"Error updating record: {e}"
+
 # --- CLI Command Implementations ---
 
 def cmd_run():
@@ -159,13 +358,16 @@ def cmd_run():
     mcp.run(transport='stdio')
 
 async def cmd_init(dsn: str):
-    """Automatically configures all supported AI agents."""
+    """Automatically configures all supported AI agents and saves local CLI config."""
     import shutil
     
     home = os.path.expanduser("~")
     executable = shutil.which("pg-mnemosyne") or sys.executable + " -m pg_mnemosyne.server"
     
-    # Config definitions
+    # 1. Save local config for CLI use
+    save_local_config(dsn)
+    
+    # 2. Config definitions for agents
     configs = {
         "Gemini CLI": { "path": os.path.join(home, ".gemini", "settings.json"), "key": "mcpServers" },
         "Qwen CLI": { "path": os.path.join(home, ".qwen", "settings.json"), "key": "mcpServers" },
@@ -175,6 +377,7 @@ async def cmd_init(dsn: str):
             "path": os.path.expandvars(os.path.join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")) if sys.platform == "darwin" else os.path.expandvars(os.path.join(os.environ.get("APPDATA", home), "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")),
             "key": "mcpServers"
         },
+        "Cline CLI": { "path": os.path.join(home, ".cline", "data", "settings", "cline_mcp_settings.json"), "key": "mcpServers" },
         "Claude Desktop": {
             "path": os.path.expandvars(os.path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")) if sys.platform == "darwin" else os.path.expandvars(os.path.join(os.environ.get("APPDATA", home), "Claude", "claude_desktop_config.json")),
             "key": "mcpServers"
@@ -182,7 +385,6 @@ async def cmd_init(dsn: str):
     }
 
     print(f"🚀 Initializing pg-mnemosyne for supported agents...")
-    print(f"🔗 Using DSN: {dsn}")
 
     for name, info in configs.items():
         path = info["path"]
@@ -226,7 +428,12 @@ async def cmd_init(dsn: str):
                         try: data = json.loads(clean_content)
                         except: pass
             if "mcp" not in data: data["mcp"] = {}
-            new_entry = { "type": "local", "command": [executable], "environment": {"PG_BASE_DSN": dsn} }
+            new_entry = {
+                "type": "local",
+                "command": [executable],
+                "env": {"PG_BASE_DSN": dsn},
+                "environment": {"PG_BASE_DSN": dsn}
+            }
             if data["mcp"].get("pg-mnemosyne") != new_entry:
                 data["mcp"]["pg-mnemosyne"] = new_entry
                 with open(opencode_path, 'w') as f: json.dump(data, f, indent=2)
@@ -283,15 +490,7 @@ async def cmd_search(db: str, query: str):
 
 async def cmd_delete(db: str, record_id: int):
     """Deletes a record by its ID."""
-    try:
-        conn = await asyncpg.connect(get_db_dsn(db))
-        try:
-            status = await conn.execute("DELETE FROM records WHERE id = $1", record_id)
-            print(f"Record {record_id} deleted. Status: {status}")
-        finally:
-            await conn.close()
-    except Exception as e:
-        print(f"Error: {e}")
+    print(await delete_record(db, record_id))
 
 def main():
     parser = argparse.ArgumentParser(description="Pg-Mnemosyne CLI & MCP Server")
@@ -333,9 +532,37 @@ def main():
     del_parser.add_argument("db", help="Database name")
     del_parser.add_argument("id", type=int, help="Record ID to delete")
 
+    # update
+    up_parser = subparsers.add_parser("update", help="Update a record by ID")
+    up_parser.add_argument("db", help="Database name")
+    up_parser.add_argument("id", type=int, help="Record ID to update")
+    up_parser.add_argument("--content", help="New content")
+    up_parser.add_argument("--tags", help="Comma-separated list of tags")
+    up_parser.add_argument("--status", help="New status")
+
     # init-schema
     is_parser = subparsers.add_parser("init-schema", help="Initialize the records table in a database")
     is_parser.add_argument("db", help="Database name")
+
+    # init-todo
+    it_parser = subparsers.add_parser("init-todo", help="Initialize the tasks table in a database")
+    it_parser.add_argument("db", help="Database name")
+
+    # init-coordination
+    ico_parser = subparsers.add_parser("init-coordination", help="Initialize the agent coordination sessions table")
+    ico_parser.add_argument("db", help="Database name")
+
+    # update-session
+    us_parser = subparsers.add_parser("update-session", help="Update or register an agent session")
+    us_parser.add_argument("db", help="Database name")
+    us_parser.add_argument("agent", help="Agent name")
+    us_parser.add_argument("task", help="Current active task description")
+    us_parser.add_argument("--file", help="Current active file name")
+    us_parser.add_argument("--status", default="active", help="Agent status (e.g. active, idle, completed)")
+
+    # sessions
+    sess_parser = subparsers.add_parser("sessions", help="List all active agent coordination sessions")
+    sess_parser.add_argument("db", help="Database name")
 
     # sql
     sql_parser = subparsers.add_parser("sql", help="Run arbitrary SQL on a database")
@@ -345,23 +572,36 @@ def main():
     args = parser.parse_args()
 
     if args.command == "init":
-        asyncio.run(cmd_init(args.dsn))
+        asyncio.run(run_and_cleanup(cmd_init(args.dsn)))
     elif args.command == "init-schema":
-        print(asyncio.run(init_schema(args.db)))
+        print(asyncio.run(run_and_cleanup(init_schema(args.db))))
+    elif args.command == "init-todo":
+        print(asyncio.run(run_and_cleanup(init_todo_schema(args.db))))
+    elif args.command == "init-coordination":
+        print(asyncio.run(run_and_cleanup(init_coordination_schema(args.db))))
+    elif args.command == "update-session":
+        print(asyncio.run(run_and_cleanup(update_agent_session(args.db, args.agent, args.task, args.file, args.status))))
+    elif args.command == "sessions":
+        print(asyncio.run(run_and_cleanup(get_active_sessions(args.db))))
     elif args.command == "sql":
-        print(asyncio.run(run_sql(args.db, args.query)))
+        print(asyncio.run(run_and_cleanup(run_sql(args.db, args.query))))
     elif args.command == "list-dbs":
-        asyncio.run(cmd_list_dbs())
+        asyncio.run(run_and_cleanup(cmd_list_dbs()))
     elif args.command == "list-tables":
-        asyncio.run(cmd_list_tables(args.db))
+        asyncio.run(run_and_cleanup(cmd_list_tables(args.db)))
     elif args.command == "add":
-        print(asyncio.run(add_record(args.db, args.type, args.content)))
+        print(asyncio.run(run_and_cleanup(add_record(args.db, args.type, args.content))))
     elif args.command == "list":
-        asyncio.run(cmd_list(args.db, args.type)) # Note: cmd_list was defined in previous version, I should ensure it exists or use get_records
+        asyncio.run(run_and_cleanup(cmd_list(args.db, args.type)))
     elif args.command == "search":
-        asyncio.run(cmd_search(args.db, args.query))
+        asyncio.run(run_and_cleanup(cmd_search(args.db, args.query)))
     elif args.command == "delete":
-        asyncio.run(cmd_delete(args.db, args.id))
+        asyncio.run(run_and_cleanup(cmd_delete(args.db, args.id)))
+    elif args.command == "update":
+        tags_list = None
+        if args.tags is not None:
+            tags_list = [t.strip() for t in args.tags.split(",") if t.strip()]
+        print(asyncio.run(run_and_cleanup(update_record(args.db, args.id, args.content, tags_list, args.status))))
     else:
         # If no command, default to running the server
         cmd_run()

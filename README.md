@@ -1,5 +1,15 @@
 # Pg-Mnemosyne MCP
 
+[![PyPI version](https://img.shields.io/pypi/v/pg-mnemosyne-mcp.svg)](https://pypi.org/project/pg-mnemosyne-mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
+[![MCP Protocol](https://img.shields.io/badge/MCP-1.0.0-orange.svg)](https://modelcontextprotocol.io)
+[![Platform Support](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#setup)
+
+<p align="center">
+  <img src="assets/mcp_power_banner.png" alt="Pg-Mnemosyne MCP Power Banner" width="100%">
+</p>
+
 A Model Context Protocol (MCP) server that provides AI assistants with a robust "super memory", task tracker, and dynamic PostgreSQL database management capabilities.
 
 ## ⚡ Quick Start
@@ -8,7 +18,7 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
    ```bash
    pipx install pg-mnemosyne-mcp
    ```
-   *If you don't have `pipx`, you can use `pip install pg-mnemosyne-mcp`.*
+   *Note: If you get an 'externally-managed-environment' error, either use `pipx` (recommended) or add `--break-system-packages` to your pip command.*
 
 2. **Auto-configure all your AI agents (Claude, Gemini, Qwen, Cursor, etc.) at once:**
    ```bash
@@ -21,10 +31,12 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
 ---
 
 ## Features
-- **High-Performance**: Uses `asyncpg` for fast asynchronous database operations.
+- **High-Performance**: Uses cached connection pooling (`asyncpg.create_pool`) for instant sub-millisecond database queries.
 - **Dynamic Projects**: The AI can create new databases for different projects on the fly.
-- **Dynamic Schema**: The AI can modify table schemas (e.g., adding columns) dynamically to adapt to changing memory needs.
-- **Standard Memory Tracker**: Built-in support for tracking `todo`, `error`, `feature`, and generic `memory` items with tags.
+- **Dynamic Schema**: The AI can modify table schemas dynamically to adapt to changing memory needs.
+- **Standard Memory Tracker**: Built-in support for tracking, updating, and deleting memory items with tags.
+- **Advanced Task Management**: Dedicated tasks schema with fields for status transitions, priority, and deadlines.
+- **Multi-Agent Coordination**: Centralized session tracking preventing duplicate coding and file-editing conflicts.
 - **Raw SQL Execution**: Gives AI ultimate flexibility for complex queries and DDL operations.
 
 ## Setup
@@ -148,13 +160,34 @@ pg-mnemosyne add my_project_db todo "Finish the documentation"
 pg-mnemosyne list my_project_db --type todo
 ```
 
-> **Note**: For more advanced commands (search, delete, list-dbs, sql, etc.), run `pg-mnemosyne --help`.
+## 🤝 Multi-Agent Coordination & Advanced Tasks
+
+Pg-Mnemosyne includes specialized schemas to help complex multi-agent setups (e.g. Gemini CLI, Codex CLI, Roo Code, Claude Desktop) coordinate on the same project:
+
+### 📋 Professional Tasks Schema
+Spin up a dedicated `tasks` table with fields for statuses (`backlog`, `todo`, `in_progress`, `blocked`, `done`), priority levels (`low`, `medium`, `high`, `critical`), tags, and deadlines:
+```bash
+pg-mnemosyne init-todo my_project_db
+```
+
+### 🛰️ Agent Coordination Hub
+Avoid merge conflicts, double-coding, and redundant compiler troubleshooting by initializing the shared `agent_sessions` coordination table:
+```bash
+pg-mnemosyne init-coordination my_project_db
+```
+When active, agents use the `update_agent_session` and `get_active_sessions` MCP tools to register their current editing files and active subtasks, creating a real-time bulletin board for mutual visibility!
 
 ## Available MCP Tools
 
 - `create_project_db(db_name: str)`: Creates a new isolated PostgreSQL database.
-- `init_schema(db_name: str)`: Initializes the base `records` table in the given database.
-- `add_column(db_name: str, table: str, column_name: str, data_type: str)`: Dynamically adds a column.
+- `init_schema(db_name: str)`: Initializes the base `records` table.
+- `init_todo_schema(db_name: str)`: Initializes a professional `tasks` table.
+- `init_coordination_schema(db_name: str)`: Initializes the multi-agent `agent_sessions` table.
+- `add_column(db_name: str, table: str, column_name: str, data_type: str)`: Dynamically adds a column to any table.
 - `add_record(db_name: str, type: str, content: str, tags: list[str])`: Adds a memory/todo record.
 - `get_records(db_name: str, type: str = None, limit: int = 50)`: Retrieves recent records.
+- `update_record(db_name: str, record_id: int, content: str = None, tags: list[str] = None, status: str = None)`: Partially updates a record.
+- `delete_record(db_name: str, record_id: int)`: Deletes a record by ID.
+- `update_agent_session(db_name: str, agent_name: str, active_task: str, active_file: str = None, status: str = "active")`: Registers/updates active agent state.
+- `get_active_sessions(db_name: str)`: Lists active agent coordination sessions.
 - `run_sql(db_name: str, query: str)`: Runs arbitrary SQL (SELECT, INSERT, DDL, etc.).

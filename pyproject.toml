@@ -24,3 +24,11 @@ pg_mnemosyne = "pg_mnemosyne.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pg_mnemosyne"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N"]
+ignore = ["E722"]
