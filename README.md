@@ -1,4 +1,4 @@
-# PG Super Memory MCP
+# Pg-Mnemosyne MCP
 
 A Model Context Protocol (MCP) server that provides AI assistants with a robust "super memory", task tracker, and dynamic PostgreSQL database management capabilities.
 
@@ -6,12 +6,12 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
 
 1. **Install the package:**
    ```bash
-   pip install pg-super-memory-mcp
+   pip install pg-mnemosyne-mcp
    ```
 
 2. **Auto-configure all your AI agents (Claude, Gemini, Qwen, Cursor, etc.) at once:**
    ```bash
-   pg-super-memory init --dsn "postgresql://user:password@localhost:5432/postgres"
+   pg-mnemosyne init --dsn "postgresql://user:password@localhost:5432/postgres"
    ```
 
 3. **Restart your AI agents.** You're done!
@@ -24,12 +24,6 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
 - **Dynamic Schema**: The AI can modify table schemas (e.g., adding columns) dynamically to adapt to changing memory needs.
 - **Standard Memory Tracker**: Built-in support for tracking `todo`, `error`, `feature`, and generic `memory` items with tags.
 - **Raw SQL Execution**: Gives AI ultimate flexibility for complex queries and DDL operations.
-
-## Installation
-
-```bash
-pip install pg-super-memory-mcp
-```
 
 ## Setup
 
@@ -54,22 +48,22 @@ The exact location depends on which AI client you are using. You need to add the
 - Open your global configuration file (usually located at `~/.gemini/settings.json` or `~/.qwen/settings.json`).
 - Alternatively, use the CLI:
   ```bash
-  gemini mcp add pg-super-memory "/path/to/pg-super-memory" -e PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -s user
+  gemini mcp add pg-mnemosyne "/path/to/pg-mnemosyne" -e PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -s user
   # OR
-  qwen mcp add pg-super-memory "/path/to/pg-super-memory" -e PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -s user
+  qwen mcp add pg-mnemosyne "/path/to/pg-mnemosyne" -e PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -s user
   ```
 
 **For Claude Code CLI:**
 - The easiest way is to add it via the CLI:
   ```bash
-  claude mcp add pg-super-memory "/path/to/pg-super-memory" -e PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -s user
+  claude mcp add pg-mnemosyne "/path/to/pg-mnemosyne" -e PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -s user
   ```
 - Manually, it lives in your global config at `~/.claude.json`.
 
 **For Codex CLI:**
 - The easiest way is to add it via the CLI:
   ```bash
-  codex mcp add pg-super-memory --env PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -- pg-super-memory
+  codex mcp add pg-mnemosyne --env PG_BASE_DSN="postgresql://user:pass@localhost:5432/postgres" -- pg-mnemosyne
   ```
 - Manually, it lives in your global config at `~/.codex/config.toml` (TOML format).
 
@@ -77,13 +71,26 @@ The exact location depends on which AI client you are using. You need to add the
 - Edit your global config at `~/.codeium/windsurf/mcp_config.json`.
 - Alternatively, click the **Hammer (MCP) icon** in the Cascade panel and select **Configure**.
 
+**For Antigravity CLI (agy):**
+Antigravity uses a plugin-based system. To add the server:
+1. Create a plugin directory: `mkdir -p ~/.gemini/config/plugins/pg-mnemosyne`
+2. Create `~/.gemini/config/plugins/pg-mnemosyne/mcp_config.json` with the **Standard Template** below.
+3. Add an entry to your `~/.gemini/config/import_manifest.json` under the `"imports"` array:
+   ```json
+   {
+     "name": "pg-mnemosyne",
+     "source": "manual",
+     "components": ["mcpServers"]
+   }
+   ```
+
 **Configuration Template (Claude Desktop, Cursor, Roo Code, Gemini CLI, Claude Code, Antigravity, Windsurf):**
 
 ```json
 {
   "mcpServers": {
-    "pg-super-memory": {
-      "command": "pg-super-memory",
+    "pg-mnemosyne": {
+      "command": "pg-mnemosyne",
       "env": {
         "PG_BASE_DSN": "postgresql://postgres:my_password@localhost:5432/postgres"
       }
@@ -100,9 +107,9 @@ The exact location depends on which AI client you are using. You need to add the
 ```jsonc
 {
   "mcp": {
-    "pg-super-memory": {
+    "pg-mnemosyne": {
       "type": "local",
-      "command": ["pg-super-memory"],
+      "command": ["pg-mnemosyne"],
       "environment": {
         "PG_BASE_DSN": "postgresql://postgres:my_password@localhost:5432/postgres"
       }
@@ -114,29 +121,29 @@ The exact location depends on which AI client you are using. You need to add the
 ## Running the Server (Standalone)
 
 ```bash
-pg-super-memory run
+pg-mnemosyne run
 ```
 
 This starts the MCP server using standard input/output.
 
 ## CLI Usage
 
-The `pg-super-memory` command also acts as a standalone CLI for managing your data and configuring agents.
+The `pg-mnemosyne` command also acts as a standalone CLI for managing your data and configuring agents.
 
 ### Auto-Initialization
 You can automatically configure all supported AI agents (Claude, Gemini, Qwen, Cursor, etc.) with a single command:
 ```bash
-pg-super-memory init --dsn "postgresql://user:pass@localhost:5432/postgres"
+pg-mnemosyne init --dsn "postgresql://user:pass@localhost:5432/postgres"
 ```
 
 ### Manual Record Management
 You can add and list records directly from your terminal:
 ```bash
 # Add a record
-pg-super-memory add my_project_db todo "Finish the documentation"
+pg-mnemosyne add my_project_db todo "Finish the documentation"
 
 # List records
-pg-super-memory list my_project_db --type todo
+pg-mnemosyne list my_project_db --type todo
 ```
 
 ## Available MCP Tools

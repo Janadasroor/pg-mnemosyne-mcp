@@ -10,10 +10,10 @@ from mcp.server.fastmcp import FastMCP
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-logger = logging.getLogger("pg-super-memory")
+logger = logging.getLogger("pg-mnemosyne")
 
 # Create the MCP server instance
-mcp = FastMCP("PG Super Memory")
+mcp = FastMCP("Pg-Mnemosyne")
 
 def get_base_dsn() -> str:
     """Returns the base PostgreSQL connection string from environment."""
@@ -155,7 +155,7 @@ async def cmd_init(dsn: str):
     import shutil
     
     home = os.path.expanduser("~")
-    executable = shutil.which("pg-super-memory") or sys.executable + " -m pg_super_memory.server"
+    executable = shutil.which("pg-mnemosyne") or sys.executable + " -m pg-mnemosyne.server"
     
     # Config definitions
     configs = {
@@ -185,7 +185,7 @@ async def cmd_init(dsn: str):
         }
     }
 
-    print(f"🚀 Initializing pg-super-memory for supported agents...")
+    print(f"🚀 Initializing pg-mnemosyne for supported agents...")
     print(f"🔗 Using DSN: {dsn}")
 
     # Process standard JSON configs
@@ -217,8 +217,8 @@ async def cmd_init(dsn: str):
                     "env": {"PG_BASE_DSN": dsn}
                 }
                 
-                if data[mcp_key].get("pg-super-memory") != new_entry:
-                    data[mcp_key]["pg-super-memory"] = new_entry
+                if data[mcp_key].get("pg-mnemosyne") != new_entry:
+                    data[mcp_key]["pg-mnemosyne"] = new_entry
                     with open(path, 'w') as f:
                         json.dump(data, f, indent=2)
                     print(f"✅ Configured {name} at {path}")
@@ -247,8 +247,8 @@ async def cmd_init(dsn: str):
                 "command": [executable],
                 "environment": {"PG_BASE_DSN": dsn}
             }
-            if data["mcp"].get("pg-super-memory") != new_entry:
-                data["mcp"]["pg-super-memory"] = new_entry
+            if data["mcp"].get("pg-mnemosyne") != new_entry:
+                data["mcp"]["pg-mnemosyne"] = new_entry
                 with open(opencode_path, 'w') as f:
                     json.dump(data, f, indent=2)
                 print(f"✅ Configured OpenCode at {opencode_path}")
@@ -265,8 +265,8 @@ async def cmd_init(dsn: str):
             if os.path.exists(codex_path):
                 with open(codex_path, 'r') as f: content = f.read()
             
-            if "[mcp_servers.pg-super-memory]" not in content:
-                entry = f'\n[mcp_servers.pg-super-memory]\ncommand = "{executable}"\n\n[mcp_servers.pg-super-memory.env]\nPG_BASE_DSN = "{dsn}"\n'
+            if "[mcp_servers.pg-mnemosyne]" not in content:
+                entry = f'\n[mcp_servers.pg-mnemosyne]\ncommand = "{executable}"\n\n[mcp_servers.pg-mnemosyne.env]\nPG_BASE_DSN = "{dsn}"\n'
                 with open(codex_path, 'a') as f:
                     f.write(entry)
                 print(f"✅ Configured Codex at {codex_path}")
@@ -276,23 +276,23 @@ async def cmd_init(dsn: str):
             print(f"⚠️  Skipped Codex: {e}")
 
     # Process Antigravity (Plugin)
-    agy_dir = os.path.join(home, ".gemini", "config", "plugins", "pg-super-memory")
+    agy_dir = os.path.join(home, ".gemini", "config", "plugins", "pg-mnemosyne")
     manifest_path = os.path.join(home, ".gemini", "config", "import_manifest.json")
     if os.path.exists(os.path.dirname(manifest_path)):
         try:
             os.makedirs(agy_dir, exist_ok=True)
             with open(os.path.join(agy_dir, "plugin.json"), 'w') as f:
-                json.dump({"name": "pg-super-memory"}, f)
+                json.dump({"name": "pg-mnemosyne"}, f)
             with open(os.path.join(agy_dir, "mcp_config.json"), 'w') as f:
-                json.dump({"mcpServers": {"pg-super-memory": {"command": executable, "args": [], "env": {"PG_BASE_DSN": dsn}}}}, f, indent=2)
+                json.dump({"mcpServers": {"pg-mnemosyne": {"command": executable, "args": [], "env": {"PG_BASE_DSN": dsn}}}}, f, indent=2)
             
             # Update manifest
             manifest = {"imports": []}
             if os.path.exists(manifest_path):
                 with open(manifest_path, 'r') as f: manifest = json.load(f)
             
-            if not any(i.get("name") == "pg-super-memory" for i in manifest["imports"]):
-                manifest["imports"].append({"name": "pg-super-memory", "source": "manual", "components": ["mcpServers"]})
+            if not any(i.get("name") == "pg-mnemosyne" for i in manifest["imports"]):
+                manifest["imports"].append({"name": "pg-mnemosyne", "source": "manual", "components": ["mcpServers"]})
                 with open(manifest_path, 'w') as f: json.dump(manifest, f, indent=2)
             print(f"✅ Configured Antigravity (agy) plugin")
         except Exception as e:
