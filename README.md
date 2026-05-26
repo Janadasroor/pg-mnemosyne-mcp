@@ -24,6 +24,7 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
    ```bash
    pg-mnemosyne init --dsn "postgresql://user:password@localhost:5432/postgres"
    ```
+   *(Be sure to replace `user` and `password` with your actual PostgreSQL username and database password!)*
 
 3. **Restart your AI agents.** You're done!
 
