@@ -393,6 +393,17 @@ async def cmd_init(dsn: str):
     """Automatically configures all supported AI agents and saves local CLI config."""
     import shutil
 
+    # Check authentication / database connection before proceeding
+    print("🔌 Verifying database connection...")
+    try:
+        conn = await asyncpg.connect(dsn, timeout=5)
+        await conn.close()
+        print("✅ Database connection verified successfully!")
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        print("\n⚠️  Configuration aborted. Please check your credentials or make sure PostgreSQL is running.")
+        sys.exit(1)
+
     home = os.path.expanduser("~")
     executable = shutil.which("pg-mnemosyne") or sys.executable + " -m pg_mnemosyne.server"
 

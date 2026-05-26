@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pg-mnemosyne-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "A Model Context Protocol (MCP) server for PostgreSQL, acting as a super memory and task tracker for AI assistants."
 readme = "README.md"
 requires-python = ">=3.10"
