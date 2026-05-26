@@ -14,11 +14,16 @@ A Model Context Protocol (MCP) server that provides AI assistants with a robust 
 
 ## ⚡ Quick Start
 
-1. **Install the package globally (recommended):**
-   ```bash
-   pipx install pg-mnemosyne-mcp
-   ```
-   *Note: If you get an 'externally-managed-environment' error, either use `pipx` (recommended) or add `--break-system-packages` to your pip command.*
+1. **Install the package globally:**
+   * **Windows**:
+     ```cmd
+     pip install pg-mnemosyne-mcp
+     ```
+   * **macOS / Linux**:
+     ```bash
+     pipx install pg-mnemosyne-mcp
+     ```
+     *(If you prefer standard pip or don't have `pipx`, run: `pip install pg-mnemosyne-mcp --break-system-packages`)*
 
 2. **Auto-configure all your AI agents (Claude, Gemini, Qwen, Cursor, etc.) at once:**
    ```bash
